@@ -6,9 +6,6 @@
 # Required local files:
 #   data/raw/urban_lprob.dta
 #   data/raw/boot_results.dta
-#
-# urban_lprob.dta is distributed separately by OpenICPSR (project 100128).
-# boot_results.dta is in the AER replication package (project 231365).
 
 source("R/00_setup.R")
 
@@ -16,37 +13,18 @@ urban_path <- "data/raw/urban_lprob.dta"
 boot_path  <- "data/raw/boot_results.dta"
 
 if (!file.exists(urban_path)) {
-  stop(
-    "Missing data/raw/urban_lprob.dta. Download urban_lprob.dta from ",
-    "OpenICPSR project 100128 and place it in data/raw/."
-  )
+  stop("Missing data/raw/urban_lprob.dta. See data/README.md.")
 }
-
 if (!file.exists(boot_path)) {
-  stop(
-    "Missing data/raw/boot_results.dta. Copy it from the official AER ",
-    "replication package (Stata/Data/boot_results.dta) into data/raw/."
-  )
+  stop("Missing data/raw/boot_results.dta. See data/README.md.")
 }
 
 urban <- haven::read_dta(urban_path)
 boot  <- haven::read_dta(boot_path)
 
-# -----------------------------------------------------------------------------
-# Controls
-# -----------------------------------------------------------------------------
-# This is a direct translation of the Stata control set:
-#
-# young old
-# i.mid#i.race
-# i.mid#i.stateicp
-# i.mid#c.age
-# i.mid#c.age_2
-# i.mid#c.age_3
-#
-# Stata's # operator includes interactions without separately adding the two
-# component main effects. The R formula below follows the same structure.
-
+# Direct translation of the Stata controls:
+# young old i.mid#i.race i.mid#i.stateicp
+# i.mid#c.age i.mid#c.age_2 i.mid#c.age_3
 controls <- paste(
   "young + old",
   "+ factor(mid):factor(race)",
@@ -56,52 +34,34 @@ controls <- paste(
   "+ factor(mid):age_3"
 )
 
-f1 <- stats::as.formula(
-  paste("tot_expen ~ June_36e + prob_june_36e +", controls)
-)
-
+f1 <- stats::as.formula(paste(
+  "tot_expen ~ June_36e + prob_june_36e +", controls
+))
 f2 <- f1
+f3 <- stats::as.formula(paste(
+  "insure_settled ~ June_36a + prob_june_36a +", controls
+))
+f4 <- stats::as.formula(paste(
+  "bonus_spent ~ June_36i + prob_june_36i +", controls
+))
 
-f3 <- stats::as.formula(
-  paste("insure_settled ~ June_36a + prob_june_36a +", controls)
-)
-
-f4 <- stats::as.formula(
-  paste("bonus_spent ~ June_36i + prob_june_36i +", controls)
-)
-
-# -----------------------------------------------------------------------------
-# OLS coefficients: Table 5 columns 1-4
-# -----------------------------------------------------------------------------
-
+# Table 5 OLS point estimates
 m1 <- stats::lm(f1, data = urban)
-
 m2 <- stats::lm(
-  f2,
-  data = urban,
+  f2, data = urban,
   subset = !is.na(tot_expen) & tot_expen < 5000
 )
-
 m3 <- stats::lm(
-  f3,
-  data = urban,
+  f3, data = urban,
   subset = !is.na(tot_expen) & tot_expen < 5000
 )
-
 m4 <- stats::lm(
-  f4,
-  data = urban,
+  f4, data = urban,
   subset = !is.na(tot_expen) & tot_expen < 5000
 )
 
-# -----------------------------------------------------------------------------
-# Bootstrap standard errors
-# -----------------------------------------------------------------------------
-# The published Stata table does not use the conventional lm() standard errors
-# for the two displayed coefficients. The authors append 1,000 saved bootstrap
-# draws and replace the relevant diagonal elements of e(V) with the variance of
-# those draws. We reproduce those standard errors directly from boot_results.dta.
-
+# Published Table 5 uses bootstrap SEs for the displayed post and interaction
+# coefficients. These are the sample SDs of the authors' 1,000 saved draws.
 boot_se <- tibble::tribble(
   ~column, ~post_se, ~interaction_se,
   "(1)", stats::sd(boot$b1_June_36e, na.rm = TRUE), stats::sd(boot$b1_inter, na.rm = TRUE),
@@ -112,11 +72,16 @@ boot_se <- tibble::tribble(
 
 extract_column <- function(model, column, post_name, interaction_name) {
   b <- stats::coef(model)
+  s <- summary(model)$coefficients
 
   tibble::tibble(
     column = column,
     post_coef = unname(b[[post_name]]),
     interaction_coef = unname(b[[interaction_name]]),
+    ols_post_se = unname(s[post_name, "Std. Error"]),
+    ols_interaction_se = unname(s[interaction_name, "Std. Error"]),
+    ols_post_p = unname(s[post_name, "Pr(>|t|)"]),
+    ols_interaction_p = unname(s[interaction_name, "Pr(>|t|)"]),
     n = stats::nobs(model),
     r2 = summary(model)$r.squared
   )
@@ -128,9 +93,14 @@ reproduced <- dplyr::bind_rows(
   extract_column(m3, "(3)", "June_36a", "prob_june_36a"),
   extract_column(m4, "(4)", "June_36i", "prob_june_36i")
 ) |>
-  dplyr::left_join(boot_se, by = "column")
+  dplyr::left_join(boot_se, by = "column") |>
+  dplyr::mutate(
+    # Normal approximation used here only to illustrate why the bootstrap SE
+    # matters for inference. The paper's star cutoffs use the posted SEs.
+    bootstrap_post_p = 2 * stats::pnorm(-abs(post_coef / post_se)),
+    bootstrap_interaction_p = 2 * stats::pnorm(-abs(interaction_coef / interaction_se))
+  )
 
-# Published Table 5 targets, transcribed from the authors' supplied tot_expen.tex.
 published <- tibble::tribble(
   ~column, ~post_coef_pub, ~post_se_pub, ~interaction_coef_pub, ~interaction_se_pub, ~n_pub, ~r2_pub,
   "(1)", 264.1,   70.52, 647.2, 379.4, 2745, 0.152,
@@ -150,15 +120,22 @@ comparison <- reproduced |>
     r2_diff = r2 - r2_pub
   )
 
+# Check the apparent >5000 versus <5000 wording discrepancy.
+cutoff_check <- tibble::tibble(
+  exactly_5000 = sum(urban$tot_expen == 5000, na.rm = TRUE),
+  above_5000 = sum(urban$tot_expen > 5000, na.rm = TRUE)
+)
+
 print(comparison)
+print(cutoff_check)
 
 readr::write_csv(reproduced, "output/table5_reproduced.csv")
 readr::write_csv(comparison, "output/table5_published_vs_reproduced.csv")
+readr::write_csv(cutoff_check, "output/table5_cutoff_check.csv")
 
-# A lightweight automatic check. Published coefficients are rounded, so use
-# tolerances rather than exact equality.
+# Published values are rounded, including one SE shown to only one decimal.
 coef_tol <- 0.15
-se_tol   <- 0.02
+se_tol   <- 0.06
 r2_tol   <- 0.0015
 
 checks <- comparison |>
@@ -176,8 +153,5 @@ print(checks)
 readr::write_csv(checks, "output/table5_replication_checks.csv")
 
 if (!all(unlist(checks[-1]))) {
-  warning(
-    "At least one published value did not match within tolerance. ",
-    "Check factor-variable translation, sample restrictions, and data version."
-  )
+  warning("At least one published value did not match within rounding tolerance.")
 }
