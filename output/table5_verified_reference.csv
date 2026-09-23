@@ -1,0 +1,5 @@
+column,outcome,post_coef,post_se,interaction_coef,interaction_se,n,r2,published_post_coef,published_post_se,published_interaction_coef,published_interaction_se,published_n,published_r2
+(1),Total spending,264.116893,70.520676,647.227138,379.440643,2745,0.152023,264.1,70.52,647.2,379.4,2745,0.152
+(2),Total spending - expenditure below 5000,198.240717,43.173489,403.117662,169.676529,2681,0.185684,198.2,43.17,403.1,169.7,2681,0.186
+(3),Bonus saved,-5.589762,4.291957,95.950386,22.882713,2681,0.033618,-5.590,4.292,95.95,22.88,2681,0.034
+(4),Bonus spent for current living,0.074240,6.855160,152.438229,46.450993,2339,0.047925,0.0742,6.855,152.4,46.45,2339,0.048
