@@ -1,0 +1,22 @@
+# Raw replication materials
+data/raw/
+original/stata/
+original/**/*.dta
+original/**/*.csv
+original/**/*.xlsx
+original/**/*.xls
+original/**/*.zip
+
+# R
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
